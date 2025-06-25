@@ -1,10 +1,18 @@
 import logging
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
-import requests
+import os
+from dotenv import load_dotenv
+import aiohttp
+import sys
+load_dotenv()
 
-TELEGRAM_TOKEN = "7689009154:AAFCIQuA1CnVeB4aQRKLT2Pkd7v-lkzGmVM"
-DEEPSEEK_API_KEY = "sk-4fcb4d7931a14614862ff532f3053109"
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
+
+if not TELEGRAM_TOKEN or not DEEPSEEK_API_KEY:
+    print("Ошибка: Не заданы TELEGRAM_TOKEN или DEEPSEEK_API_KEY в .env")
+    sys.exit(1)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Привет! Я бот с DeepSeek. Напиши мне что-нибудь.")
@@ -12,21 +20,22 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text
 
-    response = requests.post(
-        "https://api.deepseek.com/v1/chat/completions",
-        headers={"Authorization": f"Bearer {DEEPSEEK_API_KEY}"},
-        json={
-            "model": "deepseek-chat",
-            "messages": [
-                {"role": "user", "content": user_message}
-            ]
-        }
-    )
-    if response.ok:
-        data = response.json()
-        answer = data["choices"][0]["message"]["content"]
-    else:
-        answer = f"Ошибка при обращении к DeepSeek API: {response.text}"
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            "https://api.deepseek.com/v1/chat/completions",
+            headers={"Authorization": f"Bearer {DEEPSEEK_API_KEY}"},
+            json={
+                "model": "deepseek-chat",
+                "messages": [
+                    {"role": "user", "content": user_message}
+                ]
+            }
+        ) as response:
+            if response.status == 200:
+                data = await response.json()
+                answer = data["choices"][0]["message"]["content"]
+            else:
+                answer = f"Ошибка при обращении к DeepSeek API: {await response.text()}"
 
     await update.message.reply_text(answer)
 
