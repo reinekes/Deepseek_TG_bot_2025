@@ -5,6 +5,7 @@ import os
 from dotenv import load_dotenv
 import aiohttp
 import sys
+from telegram.constants import ChatAction
 load_dotenv()
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -19,6 +20,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text
+
+    # Показываем, что бот печатает
+    await update.message.chat.send_action(action=ChatAction.TYPING)
 
     async with aiohttp.ClientSession() as session:
         async with session.post(
