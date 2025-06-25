@@ -48,15 +48,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Получаем выбранную модель (по умолчанию обычная)
     model = context.user_data.get('model', DEFAULT_MODEL)
 
+    # Получаем историю диалога пользователя
+    history = context.user_data.get('history', [])
+    # Добавляем новое сообщение пользователя
+    history.append({"role": "user", "content": user_message})
+
     async with aiohttp.ClientSession() as session:
         async with session.post(
             "https://api.deepseek.com/v1/chat/completions",
             headers={"Authorization": f"Bearer {DEEPSEEK_API_KEY}"},
             json={
                 "model": model,
-                "messages": [
-                    {"role": "user", "content": user_message}
-                ]
+                "messages": history
             }
         ) as response:
             if response.status == 200:
@@ -64,6 +67,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 answer = data["choices"][0]["message"]["content"]
             else:
                 answer = f"Ошибка при обращении к DeepSeek API: {await response.text()}"
+
+    # Добавляем ответ ассистента в историю
+    history.append({"role": "assistant", "content": answer})
+    # Сохраняем обновлённую историю
+    context.user_data['history'] = history
 
     await update.message.reply_text(answer)
 
