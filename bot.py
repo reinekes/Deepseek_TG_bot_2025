@@ -7,6 +7,7 @@ import aiohttp
 import sys
 from telegram.constants import ChatAction
 from serpapi import GoogleSearch
+import json as pyjson
 load_dotenv()
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -26,13 +27,13 @@ search_tool = [
         "type": "function",
         "function": {
             "name": "search_web",
-            "description": "Поиск информации в интернете через Google (SerpApi)",
+            "description": "Search the web for up-to-date information.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "Поисковый запрос"
+                        "description": "The search query"
                     }
                 },
                 "required": ["query"]
@@ -122,12 +123,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ) as response:
             if response.status == 200:
                 data = await response.json()
+                print("Ответ DeepSeek:", pyjson.dumps(data, ensure_ascii=False, indent=2))
                 # Проверяем, есть ли tool_calls
                 if web_search and "choices" in data and data["choices"][0]["message"].get("tool_calls"):
-                    tool_call = data["choices"][0]["message"]["tool_calls"][0]
+                    assistant_message = data["choices"][0]["message"]
+                    # Добавляем assistant с tool_calls в history
+                    history.append(assistant_message)
+                    tool_call = assistant_message["tool_calls"][0]
                     if tool_call["function"]["name"] == "search_web":
                         query_str = tool_call["function"]["arguments"]
-                        import json as pyjson
                         args = pyjson.loads(query_str)
                         search_query = args.get("query", "")
                         # Выполняем поиск через SerpApi
@@ -144,26 +148,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                 answer_text += f"{res.get('title')}: {res.get('snippet', '')}\n{res.get('link')}\n\n"
                         else:
                             answer_text = "Нет результатов поиска."
-                        # Формируем историю для повторного запроса: до assistant (с tool_calls) + tool
-                        # Ищем последнее сообщение assistant с tool_calls
-                        history_for_tool = []
-                        for msg in reversed(history):
-                            if msg.get("role") == "assistant":
-                                if msg.get("tool_calls") or msg.get("function_call"):
-                                    # Нашли assistant с tool_calls
-                                    idx = history.index(msg)
-                                    history_for_tool = history[:idx+1]
-                                    break
-                        if not history_for_tool:
-                            # Если не нашли, просто до последнего сообщения
-                            history_for_tool = history.copy()
+                        # Для повторного запроса: только assistant с tool_calls и tool
                         tool_call_id = tool_call["id"]
                         tool_message = {
                             "role": "tool",
                             "tool_call_id": tool_call_id,
                             "content": answer_text
                         }
-                        history_for_tool.append(tool_message)
+                        history_for_tool = [assistant_message, tool_message]
+                        print("История для повторного запроса:", pyjson.dumps(history_for_tool, ensure_ascii=False, indent=2))
                         json_data2 = {
                             "model": model,
                             "messages": history_for_tool
@@ -176,7 +169,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             if response2.status == 200:
                                 data2 = await response2.json()
                                 answer = data2["choices"][0]["message"]["content"]
-                                # Добавляем ответ ассистента в основную историю
+                                # Только теперь добавляем финальный ответ ассистента в основную историю
+                                history.append({"role": "assistant", "content": answer})
+                                # Очищаем историю: оставляем только user и последний assistant
+                                history = [msg for msg in history if msg.get("role") == "user"]
                                 history.append({"role": "assistant", "content": answer})
                                 context.user_data['history'] = history
                             else:
